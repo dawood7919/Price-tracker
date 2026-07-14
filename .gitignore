@@ -4,3 +4,8 @@ __pycache__/
 *.db
 venv/
 .venv/
+video_bot/.env
+video_bot/temp_downloads/
+video_bot/*.db
+video_bot/*.log
+video_bot/.venv/
