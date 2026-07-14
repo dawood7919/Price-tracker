@@ -31,20 +31,25 @@ The bot only responds to its configured `OWNER_TELEGRAM_ID` — everyone else ge
 
 ## Setup
 
-1. Copy `.env.example` to `.env` and fill in:
-   - `BOT_TOKEN` — from [@BotFather](https://t.me/BotFather)
-   - `OWNER_TELEGRAM_ID` — your numeric Telegram user ID, from
-     [@userinfobot](https://t.me/userinfobot)
-   - `YOUTUBE_API_KEY` *(optional)* — from the
-     [Google Cloud Console](https://console.cloud.google.com/apis/library/youtube.googleapis.com),
-     needed only for the Creative Commons check
-   - `OWNED_YOUTUBE_CHANNEL_IDS` *(optional)* — comma-separated channel IDs you own
-   - `ALLOWED_DOMAINS` *(optional)* — comma-separated domains, defaults to `archive.org`
-2. Install dependencies (requires `ffmpeg` on your system for audio extraction/merging):
+`BOT_TOKEN` and `OWNER_TELEGRAM_ID` are hardcoded as defaults directly in
+`config.py` — the bot runs with no `.env` file and no platform environment
+variables required. An env var, if set, still overrides its matching default,
+so you can rotate the token later (e.g. via BotFather's `/revoke`) without
+touching code: just set `BOT_TOKEN` in the environment and it takes priority.
+
+Optional settings (unset by default, no code change needed to add them —
+just set the env var):
+- `YOUTUBE_API_KEY` — from the
+  [Google Cloud Console](https://console.cloud.google.com/apis/library/youtube.googleapis.com),
+  needed only for the Creative Commons check
+- `OWNED_YOUTUBE_CHANNEL_IDS` — comma-separated channel IDs you own
+- `ALLOWED_DOMAINS` — comma-separated domains, defaults to `archive.org`
+
+1. Install dependencies (requires `ffmpeg` on your system for audio extraction/merging):
    ```bash
    pip install -r requirements.txt
    ```
-3. Run:
+2. Run:
    ```bash
    python main.py
    ```

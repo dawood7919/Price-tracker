@@ -16,17 +16,13 @@ def _get_id_set(name: str) -> set[str]:
     return {item.strip() for item in value.split(",") if item.strip()}
 
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN is missing. Set it in your .env file or environment variables.")
+# Defaults are hardcoded so the bot runs with zero external configuration.
+# An env var, if set, still overrides its matching default.
+_DEFAULT_BOT_TOKEN = "1427827588:AAE9hCOIBp3l-2-pWNFf8nveQCzt-Nh3D7Y"
+_DEFAULT_OWNER_TELEGRAM_ID = "1096429310"
 
-_owner_id = os.getenv("OWNER_TELEGRAM_ID")
-if not _owner_id:
-    raise RuntimeError(
-        "OWNER_TELEGRAM_ID is missing. This bot only serves its configured owner; "
-        "get your numeric Telegram ID from @userinfobot and set it in .env."
-    )
-OWNER_TELEGRAM_ID = int(_owner_id)
+BOT_TOKEN = os.getenv("BOT_TOKEN", _DEFAULT_BOT_TOKEN)
+OWNER_TELEGRAM_ID = int(os.getenv("OWNER_TELEGRAM_ID", _DEFAULT_OWNER_TELEGRAM_ID))
 
 # Optional: enables the Creative Commons license check for YouTube videos
 # that aren't on the owner's own channel. Without it, such videos are rejected.
