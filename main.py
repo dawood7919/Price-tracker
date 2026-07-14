@@ -1,4 +1,7 @@
 import logging
+import os
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from telegram.ext import Application, CommandHandler
 
@@ -14,7 +17,27 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class _HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def log_message(self, format, *args):
+        pass
+
+
+def start_health_check_server():
+    """Render's Web Service plan requires an open HTTP port to pass health checks.
+    The bot itself only needs Telegram polling, so this just keeps the deploy alive."""
+    port = int(os.getenv("PORT", "10000"))
+    server = HTTPServer(("0.0.0.0", port), _HealthCheckHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    logger.info("Health check server listening on port %s", port)
+
+
 def main():
+    start_health_check_server()
     database.init_db()
 
     application = Application.builder().token(BOT_TOKEN).post_init(start_scheduler).build()
