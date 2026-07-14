@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import threading
@@ -39,6 +40,13 @@ def start_health_check_server():
 def main():
     start_health_check_server()
     database.init_db()
+
+    # python-telegram-bot's run_polling() calls asyncio.get_event_loop() internally,
+    # which raises on Python 3.14+ if no loop has been set on the main thread yet.
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
 
     application = Application.builder().token(BOT_TOKEN).post_init(start_scheduler).build()
 
