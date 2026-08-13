@@ -1,0 +1,21 @@
+name: legal-torrent-bot
+
+services:
+  bot:
+    build:
+      context: .
+    container_name: legal-torrent-bot
+    env_file:
+      - .env
+    environment:
+      # Keeps /settings choices and terms acceptance when the container is rebuilt.
+      BOT_SETTINGS_PATH: /app/state/settings.json
+    restart: unless-stopped
+    volumes:
+      # Downloads and runtime settings survive a container replacement.
+      - bot_downloads:/tmp/video-bot-downloads
+      - bot_state:/app/state
+
+volumes:
+  bot_downloads:
+  bot_state:

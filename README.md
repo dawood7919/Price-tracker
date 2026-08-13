@@ -27,6 +27,10 @@
 - ✅ Graceful shutdown عند `SIGTERM` (إعادة نشر Render)
 - ✅ اختبارات unit وintegration وsmoke import قابلة للتشغيل محليًا
 
+## 🐧 التشغيل على خادم Ubuntu
+
+للتشغيل المستمر عبر Docker بوضع Polling، استخدم ملف [دليل النشر على Ubuntu](DEPLOY_UBUNTU.md). لا يتطلب هذا الوضع دومينًا أو فتح منافذ واردة، ويحفظ اختيارات `/settings` وقبول الشروط داخل وحدة تخزين دائمة.
+
 ## 🚀 النشر على Render
 
 1. **اعمل بوت جديد** من [@BotFather](https://t.me/BotFather) وخد التوكن.

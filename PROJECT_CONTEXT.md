@@ -36,6 +36,8 @@ learning-programming-app/
 ├── Dockerfile              # Alpine + ffmpeg + aria2 + chromium + bot-api binary
 ├── requirements.txt
 ├── .env.example
+├── compose.yaml            # تشغيل دائم عبر Docker بوضع Polling مع وحدات تخزين للحالة
+├── DEPLOY_UBUNTU.md        # دليل التثبيت والإدارة على خادم Ubuntu
 ├── PROJECT_CONTEXT.md      # ← هذا الملف (حدّثه دائمًا)
 └── bot/
     ├── config.py           # pydantic-settings من البيئة
@@ -227,6 +229,7 @@ docker logs --tail 50 video-bot
 
 | تاريخ | ماذا حصل |
 |-------|----------|
+| 2026-08-13 | إضافة تشغيل Docker Compose دائم بوضع Polling وحفظ حالة `/settings` وقبول الشروط على Ubuntu |
 | 2026-08-13 | إضافة قبول شروط الاستخدام ومحرك تورنت مدمج لمصادر Ubuntu وDebian وFedora الرسمية، مع إدارة المصادر من `/settings` |
 | 2026-07-30 | إزالة كاملة للـ AI والملفات المرتبطة |
 | 2026-07-30 | `/secret` يقتصر على wow.xxx + pagination + inline |

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -41,14 +42,14 @@ TORRENT_SITES: dict[str, dict[str, str]] = {
 }
 DEFAULT_TORRENT_SOURCES = ("ubuntu", "debian", "fedora")
 
-_SETTINGS_PATH = Path("/tmp/video-bot-settings.json")
+_SETTINGS_PATH = Path(os.environ.get("BOT_SETTINGS_PATH", "/tmp/video-bot-settings.json"))
 
 
 def _load() -> dict[str, Any]:
     try:
         if _SETTINGS_PATH.is_file():
             return json.loads(_SETTINGS_PATH.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, json.JSONDecodeError):
         logger.warning("Failed to load settings from %s", _SETTINGS_PATH)
     return {}
 

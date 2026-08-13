@@ -36,7 +36,8 @@ RUN chmod +x start.sh
 
 # Non-root user (downloads live in /tmp which stays writable)
 RUN adduser -D appuser \
-    && mkdir -p /app/botapi-data && chown appuser:appuser /app/botapi-data
+    && mkdir -p /app/botapi-data /app/state \
+    && chown -R appuser:appuser /app/botapi-data /app/state
 USER appuser
 
 ENV PYTHONUNBUFFERED=1
