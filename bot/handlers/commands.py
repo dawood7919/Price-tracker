@@ -8,7 +8,8 @@ from telegram.ext import ContextTypes
 
 from ..config import Config
 from ..manager import DownloadManager, JobState
-from ..settings_store import site_label
+from ..settings_store import get_active_torrent_sources, site_label, torrent_site_label
+from ..terms import is_terms_accepted, send_terms
 from ..utils import disk_usage_mb, format_duration, format_size, system_stats
 from ..version import BOT_VERSION
 
@@ -17,8 +18,9 @@ START_TEXT = (
     "<code>v{version}</code>\n\n"
     "ابعت لينك فيديو وهنزّلهولك (جودة لحد 4K).\n\n"
     "⚙️ <b>/settings</b> — اختيار موقع البحث\n"
-    "🔍 <code>/secret search كلمة</code> أو inline\n\n"
-    "أوامر: /stats /scan /pdf /torrent /speedtest /logs /killall\n"
+    "🔍 <code>/secret search كلمة</code> أو inline\n"
+    "🧲 <code>/torrent ubuntu</code> أو inline: <code>t ubuntu</code>\n\n"
+    "أوامر: /stats /scan /pdf /torrent /settings /terms /speedtest /logs /killall\n"
     "حد الجزء: {limit}"
 )
 
@@ -40,6 +42,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if update.message is None:
         return
     cfg = _config(context)
+    user = update.effective_user
+    if user is None or not is_terms_accepted(user.id):
+        await send_terms(update.message)
+        return
     await update.message.reply_text(
         START_TEXT.format(
             version=BOT_VERSION,
@@ -57,7 +63,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         HELP_TEXT.format(
             version=BOT_VERSION,
             limit=format_size(cfg.upload_limit_bytes),
-            site=site_label(),
+            site=f"{site_label()} · تورنت: {', '.join(torrent_site_label(source) for source in get_active_torrent_sources(cfg.torrent_sources))}",
         ),
         parse_mode="HTML",
     )

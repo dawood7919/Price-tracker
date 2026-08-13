@@ -1,11 +1,8 @@
-"""/torrent and inline (@BotName query) search over a fixed, legitimate
-source (official Ubuntu ISO torrents), with real BitTorrent downloading
-(via aria2c) and upload through the same pipeline the rest of the bot uses.
+"""Torrent command, inline search, and download flow.
 
-Also accepts a .torrent file sent directly as a document — you already know
-exactly what it is, so there's no search/discovery step involved at all.
-
-Deliberately not a general search — see search_torrents() below.
+Search results are supplied by the allowlisted official providers in
+``bot.torrent_sources``. The download and upload pipeline remains shared with
+the rest of the bot and also accepts a user-supplied ``.torrent`` file.
 """
 
 from __future__ import annotations
@@ -14,7 +11,6 @@ import asyncio
 import contextlib
 import html
 import logging
-import re
 import shutil
 import time
 import uuid
@@ -35,6 +31,7 @@ from telegram.ext import ContextTypes
 from ..config import Config
 from ..jobs import StatusReporter
 from ..manager import DownloadManager, JobState
+from ..torrent_sources import search_torrents
 from ..torrentdl import TorrentDownloadError, download_torrent
 from ..uploader import UploadManager
 from ..utils import error_message, format_progress_panel, free_disk_mb, notify_owner
@@ -46,129 +43,6 @@ MAX_PENDING_PER_USER = 20
 MAX_PENDING_INLINE_RESULTS = 200
 INLINE_RESULT_TTL_SECONDS = 15 * 60
 MAX_TORRENT_FILE_BYTES = 2 * 1024 * 1024  # a real .torrent descriptor is a few KB
-
-
-def _format_size(size_bytes: int | float | None) -> str:
-    """دالة مساعدة لتحويل الحجم من Bytes إلى حجم مقروء (MB, GB, إلخ)."""
-    if not size_bytes:
-        return "N/A"
-    try:
-        size = float(size_bytes)
-    except (ValueError, TypeError):
-        return str(size_bytes)
-
-    for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if abs(size) < 1024.0:
-            return f"{size:.1f} {unit}"
-        size /= 1024.0
-    return f"{size:.1f} PB"
-
-
-# Fixed, legitimate source: Canonical's own release server, nothing else.
-#
-# Filenames are discovered from the directory listing rather than hardcoded.
-# Hardcoding them rots: Ubuntu publishes point releases (24.04.4) and drops
-# the plain "24.04" file, so a pinned URL starts 404-ing the moment a point
-# release lands — which is exactly what happened here.
-#
-# Deliberately NOT a general query against a public torrent index (e.g.
-# YTS/1337x/TPB) — those are dominated by pirated commercial media, and a
-# "search any title, download whatever matches" tool is what this project
-# has explicitly declined to build. To offer more variety, add another
-# *individually-named* legitimate source below — not a search backend.
-UBUNTU_BASE = "https://releases.ubuntu.com"
-UBUNTU_RELEASE_DIRS = ("26.04", "24.04")  # current + previous LTS
-LISTING_CACHE_TTL_SECONDS = 600
-
-_ENTRY_RE = re.compile(
-    r'href="(ubuntu-(\d+\.\d+(?:\.\d+)?)-(desktop|live-server)-amd64\.iso\.torrent)"'
-)
-_FLAVOUR_LABELS = {"desktop": "Desktop", "live-server": "Server"}
-
-# (results, fetched_at) — inline mode fires a query per keystroke, so without
-# this every character typed would hit Canonical's server again.
-_listing_cache: tuple[list[dict], float] | None = None
-
-
-def _parse_release_listing(html: str, release_dir: str) -> list[dict]:
-    """Newest point release per flavour from one directory listing.
-
-    Pure/offline so it can be unit-tested without touching the network.
-    """
-    newest: dict[str, tuple[tuple[int, ...], str, str]] = {}
-    for filename, version, flavour in _ENTRY_RE.findall(html):
-        key = tuple(int(p) for p in version.split("."))
-        # Compare numerically: a plain string sort puts "24.04.10" before
-        # "24.04.9".
-        if flavour not in newest or key > newest[flavour][0]:
-            newest[flavour] = (key, version, filename)
-
-    return [
-        {
-            "name": f"Ubuntu {version} {_FLAVOUR_LABELS[flavour]} (amd64)",
-            "size": "؟",
-            "seeders": "official",
-            "torrent": f"{UBUNTU_BASE}/{release_dir}/{filename}",
-            "iso": f"{UBUNTU_BASE}/{release_dir}/{filename[: -len('.torrent')]}",
-        }
-        for flavour, (_key, version, filename) in sorted(newest.items())
-    ]
-
-
-def _matches(item: dict, tokens: list[str]) -> bool:
-    haystack = f"{item['name']} ubuntu linux iso".lower()
-    return all(token in haystack for token in tokens)
-
-
-async def _fill_sizes(session: aiohttp.ClientSession, items: list[dict]) -> None:
-    """Best-effort real ISO sizes via HEAD. The listing's own size column is
-    the .torrent descriptor's size (a few hundred KB), not the image's."""
-
-    async def one(item: dict) -> None:
-        with contextlib.suppress(Exception):
-            async with session.head(item["iso"], allow_redirects=True) as resp:
-                length = resp.headers.get("Content-Length")
-                if length and length.isdigit():
-                    item["size"] = _format_size(int(length))
-
-    await asyncio.gather(*(one(i) for i in items))
-
-
-async def search_torrents(query: str) -> list[dict]:
-    """Available official Ubuntu images, filtered by *query*."""
-    global _listing_cache
-
-    now = time.monotonic()
-    if _listing_cache is not None and now - _listing_cache[1] < LISTING_CACHE_TTL_SECONDS:
-        results = _listing_cache[0]
-    else:
-        results = []
-        try:
-            timeout = aiohttp.ClientTimeout(total=FETCH_TIMEOUT_SECONDS)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                for release_dir in UBUNTU_RELEASE_DIRS:
-                    try:
-                        async with session.get(f"{UBUNTU_BASE}/{release_dir}/") as resp:
-                            if resp.status >= 400:
-                                continue
-                            html = await resp.text()
-                    except aiohttp.ClientError as exc:
-                        logger.warning("Ubuntu listing %s failed: %s", release_dir, exc)
-                        continue
-                    results.extend(_parse_release_listing(html, release_dir))
-                if results:
-                    await _fill_sizes(session, results)
-        except Exception:
-            logger.exception("Failed to list official Ubuntu images")
-            return []
-
-        if results:
-            _listing_cache = (results, now)
-
-    tokens = [t for t in query.lower().split() if t]
-    if not tokens:
-        return results
-    return [item for item in results if _matches(item, tokens)]
 
 
 # ---------------------------------------------------------------- /torrent
@@ -183,13 +57,14 @@ async def torrent_search_command(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text("اكتب كلمة البحث بعد الأمر\nمثال:\n/torrent ubuntu")
         return
 
-    results = await search_torrents(query)
+    config: Config = context.bot_data["config"]
+    results = await search_torrents(query, config)
     if not results:
         await update.message.reply_text(
             "مفيش نتايج للكلمة دي.\n\n"
-            "ℹ️ المصدر هنا هو نسخ Ubuntu الرسمية بس (releases.ubuntu.com) — "
-            "جرب <code>ubuntu</code> أو <code>desktop</code> أو <code>server</code>.\n"
-            "لأي تورينت تاني، ابعتلي ملف <code>.torrent</code> مباشرة كملف.",
+            "ℹ️ المصادر القانونية المفعّلة: Ubuntu وDebian وFedora. "
+            "جرّب <code>ubuntu</code> أو <code>debian</code> أو <code>fedora</code>، "
+            "أو غيّر المصادر من <code>/settings</code>.",
             parse_mode="HTML",
         )
         return
@@ -205,7 +80,7 @@ async def torrent_search_command(update: Update, context: ContextTypes.DEFAULT_T
         buttons.append(
             [
                 InlineKeyboardButton(
-                    f"{item['name']}\nالحجم: {item['size']} — Seeders: {item['seeders']}",
+                    f"{item['name']}\n{item['source']} — الحجم: {item['size']}",
                     callback_data=f"torrentdl:{key}",
                 )
             ]
@@ -223,10 +98,16 @@ async def torrent_inline_query(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     query = inline_query.query.strip()
+    lower = query.lower()
+    for prefix in ("torrent ", "t "):
+        if lower.startswith(prefix):
+            query = query[len(prefix) :].strip()
+            break
     if not query:
         return
 
-    results = await search_torrents(query)
+    config: Config = context.bot_data["config"]
+    results = await search_torrents(query, config)
 
     # An inline message can be forwarded or its button can be pressed by
     # somebody other than the person who typed the query. user_data belongs
@@ -250,7 +131,7 @@ async def torrent_inline_query(update: Update, context: ContextTypes.DEFAULT_TYP
             InlineQueryResultArticle(
                 id=key,
                 title=item["name"],
-                description=f"الحجم: {item['size']} — Seeders: {item['seeders']}",
+                description=f"{item['source']} — الحجم: {item['size']}",
                 input_message_content=InputTextMessageContent(f"🎬 {item['name']}"),
                 reply_markup=InlineKeyboardMarkup(
                     [[InlineKeyboardButton("⬇️ تحميل", callback_data=f"torrentdl:{key}")]]
@@ -456,17 +337,19 @@ async def torrent_download_button(update: Update, context: ContextTypes.DEFAULT_
     else:
         try:
             timeout = aiohttp.ClientTimeout(total=FETCH_TIMEOUT_SECONDS)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(torrent_source) as response:
-                    if response.status >= 400:
-                        reason = f"فشل تحميل ملف .torrent (HTTP {response.status})"
-                        await status.update(f"❌ {reason}.", force=True, final=True)
-                        await _notify_torrent_failure(
-                            bot, config, name=item["name"], user_id=user_id, reason=reason
-                        )
-                        shutil.rmtree(job_dir, ignore_errors=True)
-                        return
-                    torrent_bytes = await response.read()
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.get(torrent_source) as response,
+            ):
+                if response.status >= 400:
+                    reason = f"فشل تحميل ملف .torrent (HTTP {response.status})"
+                    await status.update(f"❌ {reason}.", force=True, final=True)
+                    await _notify_torrent_failure(
+                        bot, config, name=item["name"], user_id=user_id, reason=reason
+                    )
+                    shutil.rmtree(job_dir, ignore_errors=True)
+                    return
+                torrent_bytes = await response.read()
         except aiohttp.ClientError as exc:
             reason = f"فشل تحميل ملف .torrent: {exc}"
             await status.update(f"❌ {reason}", force=True, final=True)

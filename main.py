@@ -49,6 +49,7 @@ from bot.handlers import (
 from bot.handlers.tools import make_log_file_handler
 from bot.manager import DownloadManager
 from bot.owner_gate import owner_only_gate
+from bot.terms import TERMS_CALLBACK, handle_terms_callback, terms_command
 from bot.uploader import UploadManager
 from bot.utils import (
     format_exception_for_owner,
@@ -76,7 +77,7 @@ async def _routed_inline_query(update: Update, context: ContextTypes.DEFAULT_TYP
     if iq is None:
         return
     q = (iq.query or "").strip().lower()
-    if q.startswith("t ") or q.startswith("torrent ") or q.startswith("ubuntu"):
+    if q.startswith(("t ", "torrent ", "ubuntu", "debian", "fedora")):
         await torrent_inline_query(update, context)
         return
     await secret_inline_query(update, context)
@@ -110,6 +111,7 @@ def build_application(config: Config) -> Application:
     application.add_handler(TypeHandler(Update, owner_only_gate), group=-1)
 
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("terms", terms_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("settings", settings_command))
@@ -122,6 +124,7 @@ def build_application(config: Config) -> Application:
     application.add_handler(CommandHandler("speedtest", speedtest_command))
     application.add_handler(CommandHandler("torrent", torrent_search_command))
     application.add_handler(InlineQueryHandler(_routed_inline_query))
+    application.add_handler(CallbackQueryHandler(handle_terms_callback, pattern=rf"^{TERMS_CALLBACK}$"))
     application.add_handler(CallbackQueryHandler(torrent_download_button, pattern=r"^torrentdl:"))
     application.add_handler(
         MessageHandler(filters.Document.FileExtension("torrent"), torrent_document_handler)

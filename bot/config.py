@@ -56,6 +56,10 @@ class Config(BaseSettings):
     secret_page_size: int = Field(default=15)
     secret_max_results: int = Field(default=60)
 
+    # Official torrent providers, comma-separated: ubuntu,debian,fedora
+    torrent_sources: str = Field(default="ubuntu,debian,fedora")
+    torrent_max_results: int = Field(default=30)
+
     # AdultColony-API (optional search backend)
     adultcolony_base_url: str | None = Field(
         default=None,

@@ -31,6 +31,16 @@ SEARCH_SITES: dict[str, dict[str, str]] = {
 }
 
 DEFAULT_SITE = "wow"
+
+# These providers are official project sources. Keep the list explicit so a
+# runtime setting cannot turn the bot into an unrestricted torrent index.
+TORRENT_SITES: dict[str, dict[str, str]] = {
+    "ubuntu": {"label": "Ubuntu الرسمي", "home": "https://releases.ubuntu.com/"},
+    "debian": {"label": "Debian الرسمي", "home": "https://www.debian.org/CD/torrent-cd/"},
+    "fedora": {"label": "Fedora الرسمي", "home": "https://fedoraproject.org/torrents/"},
+}
+DEFAULT_TORRENT_SOURCES = ("ubuntu", "debian", "fedora")
+
 _SETTINGS_PATH = Path("/tmp/video-bot-settings.json")
 
 
@@ -72,3 +82,48 @@ def set_active_site(site: str) -> str:
 def site_label(site: str | None = None) -> str:
     s = site or get_active_site()
     return SEARCH_SITES.get(s, SEARCH_SITES[DEFAULT_SITE])["label"]
+
+
+def _normalize_torrent_sources(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        candidates = value.split(",")
+    elif isinstance(value, (list, tuple)):
+        candidates = [str(item) for item in value]
+    else:
+        candidates = []
+    selected = tuple(
+        dict.fromkeys(item.strip().lower() for item in candidates if item.strip().lower() in TORRENT_SITES)
+    )
+    return selected
+
+
+def get_active_torrent_sources(configured_sources: str | None = None) -> tuple[str, ...]:
+    """Return persistent user choices, falling back to the env configuration."""
+    saved = _load().get("torrent_sources")
+    selected = _normalize_torrent_sources(saved)
+    if selected:
+        return selected
+    selected = _normalize_torrent_sources(configured_sources)
+    return selected or DEFAULT_TORRENT_SOURCES
+
+
+def toggle_torrent_source(source_id: str, configured_sources: str | None = None) -> tuple[str, ...]:
+    """Toggle one provider while always preserving at least one active source."""
+    source_id = source_id.strip().lower()
+    if source_id not in TORRENT_SITES:
+        raise ValueError(f"unknown torrent source: {source_id}")
+    current = list(get_active_torrent_sources(configured_sources))
+    if source_id in current:
+        if len(current) == 1:
+            return tuple(current)
+        current.remove(source_id)
+    else:
+        current.append(source_id)
+    data = _load()
+    data["torrent_sources"] = current
+    _save(data)
+    return tuple(current)
+
+
+def torrent_site_label(source_id: str) -> str:
+    return TORRENT_SITES[source_id]["label"]

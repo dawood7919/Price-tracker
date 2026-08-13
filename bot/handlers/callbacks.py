@@ -35,7 +35,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     parts = query.data.split(":")
     action = parts[0]
 
-    if action == "setsite":
+    if action in ("setsite", "torrentsite"):
         await handle_settings_callback(update, context)
         return
 

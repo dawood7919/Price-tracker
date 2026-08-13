@@ -9,6 +9,7 @@ from telegram import Update
 from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 from .config import Config
+from .terms import TERMS_CALLBACK, is_terms_accepted
 
 logger = logging.getLogger(__name__)
 
@@ -40,4 +41,20 @@ async def owner_only_gate(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if update.inline_query is not None:
             with contextlib.suppress(Exception):
                 await update.inline_query.answer([], cache_time=30, is_personal=True)
+        raise ApplicationHandlerStop
+
+    # The owner can always read /start and /terms. Every other feature waits
+    # for the one-time acknowledgement stored in settings_store.
+    if uid is not None and not is_terms_accepted(uid):
+        message = update.effective_message
+        text = (message.text or "").strip() if message is not None else ""
+        callback = update.callback_query.data if update.callback_query is not None else ""
+        if text.startswith(("/start", "/terms")) or callback == TERMS_CALLBACK:
+            return
+        if update.inline_query is not None:
+            with contextlib.suppress(Exception):
+                await update.inline_query.answer([], cache_time=5, is_personal=True)
+        elif message is not None:
+            with contextlib.suppress(Exception):
+                await message.reply_text("استخدم /start واقبل شروط الاستخدام أولًا.")
         raise ApplicationHandlerStop

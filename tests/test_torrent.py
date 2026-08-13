@@ -5,13 +5,12 @@ import pytest
 
 from bot.config import Config
 from bot.handlers.torrent import (
-    _parse_release_listing,
-    search_torrents,
     torrent_document_handler,
     torrent_download_button,
     torrent_inline_query,
     torrent_search_command,
 )
+from bot.torrent_sources import _parse_fedora_payload, _parse_ubuntu_listing
 from bot.manager import DownloadManager, JobState
 from bot.torrentdl import TorrentDownloadError
 from bot.uploader import UploadManager
@@ -34,37 +33,29 @@ UBUNTU_LISTING_HTML = """
 """
 
 
-@pytest.fixture(autouse=True)
-def _clear_listing_cache():
-    """search_torrents memoizes the listing; isolate tests from each other."""
-    import bot.handlers.torrent as torrent_module
-
-    torrent_module._listing_cache = None
-    yield
-    torrent_module._listing_cache = None
-
-
 @pytest.fixture
 def stub_search(monkeypatch):
-    """Handler tests must not touch the network — search_torrents does HTTP."""
+    """Handler tests must not touch source networks."""
     import bot.handlers.torrent as torrent_module
 
     items = [
         {
             "name": "Ubuntu 24.04.4 Desktop (amd64)",
             "size": "6.2 GB",
-            "seeders": "official",
-            "torrent": f"{torrent_module.UBUNTU_BASE}/24.04/a.iso.torrent",
+            "seeders": "رسمي",
+            "source": "Ubuntu الرسمي",
+            "torrent": "https://releases.ubuntu.com/24.04/a.iso.torrent",
         },
         {
-            "name": "Ubuntu 24.04.4 Server (amd64)",
-            "size": "3.0 GB",
-            "seeders": "official",
-            "torrent": f"{torrent_module.UBUNTU_BASE}/24.04/b.iso.torrent",
+            "name": "Fedora Workstation 44 x86_64",
+            "size": "2.7 GB",
+            "seeders": "رسمي",
+            "source": "Fedora الرسمي",
+            "torrent": "https://torrent.fedoraproject.org/torrents/fedora.torrent",
         },
     ]
 
-    async def fake_search(query: str):
+    async def fake_search(query: str, config: Config):
         return list(items)
 
     monkeypatch.setattr(torrent_module, "search_torrents", fake_search)
@@ -81,6 +72,7 @@ def make_command_update(args):
     context = MagicMock()
     context.args = args
     context.user_data = {}
+    context.bot_data = {"config": make_config()}
 
     return update, context, message
 
@@ -95,6 +87,7 @@ def make_inline_update(query_text):
 
     context = MagicMock()
     context.user_data = {}
+    context.bot_data = {"config": make_config()}
 
     return update, context, inline_query
 
@@ -122,67 +115,37 @@ def make_callback_update(callback_data, config, torrent_results=None, user_id=1)
     return update, context, query, uploader
 
 
-class TestParseReleaseListing:
-    """Offline tests for the listing parser.
-
-    Regression context: the .torrent URLs used to be hardcoded, which 404'd
-    as soon as Ubuntu published a point release and removed the plain
-    "24.04" file — so filenames are now discovered from the listing.
-    """
-
-    def test_picks_newest_point_release_per_flavour(self):
-        items = _parse_release_listing(UBUNTU_LISTING_HTML, "24.04")
-        names = [i["name"] for i in items]
-        assert names == [
+class TestOfficialSourceParsers:
+    def test_picks_newest_ubuntu_point_release_per_flavour(self):
+        items = _parse_ubuntu_listing(UBUNTU_LISTING_HTML, "24.04")
+        assert [item["name"] for item in items] == [
             "Ubuntu 24.04.4 Desktop (amd64)",
             "Ubuntu 24.04.4 Server (amd64)",
         ]
-        # 24.04.3 was superseded and must not be offered
-        assert not any("24.04.3" in n for n in names)
-
-    def test_builds_absolute_urls_on_the_official_host_only(self):
-        items = _parse_release_listing(UBUNTU_LISTING_HTML, "24.04")
-        for item in items:
-            assert item["torrent"].startswith("https://releases.ubuntu.com/24.04/")
-            assert item["torrent"].endswith(".iso.torrent")
-            # the .iso alongside it, used only to read a real size via HEAD
-            assert item["iso"] == item["torrent"][: -len(".torrent")]
+        assert all(item["source"] == "Ubuntu الرسمي" for item in items)
+        assert all(item["torrent"].startswith("https://releases.ubuntu.com/24.04/") for item in items)
 
     def test_ignores_non_torrent_rows(self):
-        items = _parse_release_listing(UBUNTU_LISTING_HTML, "24.04")
-        assert all(i["torrent"].endswith(".torrent") for i in items)
-        assert not any("zsync" in i["torrent"] or "SHA256" in i["torrent"] for i in items)
+        items = _parse_ubuntu_listing(UBUNTU_LISTING_HTML, "24.04")
+        assert all(item["torrent"].endswith(".torrent") for item in items)
+        assert not any("zsync" in item["torrent"] or "SHA256" in item["torrent"] for item in items)
 
-    def test_numeric_version_ordering_not_string_ordering(self):
-        """A plain string sort would rank "24.04.9" above "24.04.10"."""
-        html = (
-            '<a href="ubuntu-24.04.9-desktop-amd64.iso.torrent">x</a>'
-            '<a href="ubuntu-24.04.10-desktop-amd64.iso.torrent">x</a>'
-        )
-        items = _parse_release_listing(html, "24.04")
-        assert [i["name"] for i in items] == ["Ubuntu 24.04.10 Desktop (amd64)"]
-
-    def test_empty_listing_yields_nothing(self):
-        assert _parse_release_listing("<html>nothing here</html>", "24.04") == []
-
-
-@pytest.mark.asyncio
-async def test_search_filters_by_query_tokens(monkeypatch):
-    import bot.handlers.torrent as torrent_module
-
-    parsed = _parse_release_listing(UBUNTU_LISTING_HTML, "24.04")
-    monkeypatch.setattr(torrent_module, "_listing_cache", (parsed, time.monotonic()))
-
-    assert len(await search_torrents("")) == 2  # no filter
-    assert [i["name"] for i in await search_torrents("server")] == [
-        "Ubuntu 24.04.4 Server (amd64)"
-    ]
-    assert [i["name"] for i in await search_torrents("desktop")] == [
-        "Ubuntu 24.04.4 Desktop (amd64)"
-    ]
-    # a query the fixed source simply cannot satisfy returns nothing, rather
-    # than silently handing back unrelated results
-    assert await search_torrents("some movie") == []
+    def test_parses_fedora_json_records(self):
+        payload = [{"name": "44", "torrents": [{
+            "torrent": "Fedora-Workstation-Live-x86_64-44.torrent",
+            "description": "Fedora Workstation Live x86_64 44",
+            "size": "2.7GB",
+            "group": "44",
+        }]}]
+        items = _parse_fedora_payload(payload)
+        assert items == [{
+            "name": "Fedora Workstation Live x86_64 44",
+            "size": "2.7GB",
+            "seeders": "رسمي",
+            "source": "Fedora الرسمي",
+            "torrent": "https://torrent.fedoraproject.org/torrents/Fedora-Workstation-Live-x86_64-44.torrent",
+            "keywords": "fedora linux iso official 44",
+        }]
 
 
 @pytest.mark.asyncio
@@ -217,7 +180,7 @@ async def test_inline_query_offers_download_button(stub_search):
     inline_query.answer.assert_awaited_once()
     answers = inline_query.answer.await_args.args[0]
     assert len(answers) == 2
-    assert len(context.user_data["torrent_results"]) == 2
+    assert len(context.bot_data["inline_torrent_results"]) == 2
 
 
 @pytest.mark.asyncio

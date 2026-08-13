@@ -20,7 +20,7 @@
 | تقسيم الملفات الكبيرة | لو تجاوز حد الرفع |
 | `/secret` | بحث **wow.xxx فقط** (صاحب البوت) |
 | Inline | `@bot كلمة` → نتائج wow.xxx |
-| تورينت | Ubuntu ISO الرسمي فقط + رفع ملف `.torrent` |
+| تورينت | بحث المصادر الرسمية Ubuntu وDebian وFedora + رفع ملف `.torrent` |
 | أدوات | scan، pdf، stats، logs، killall، speedtest، cookies |
 
 **مهم:** تم **إزالة كل مميزات الـ AI** (`/ai`، chat mode، ai_tools، Groq). لا تستخدمها ولا تعيدها إلا بطلب صريح من المالك.
@@ -80,7 +80,7 @@ learning-programming-app/
 | `/stats` | CPU/RAM/Disk/طابور | `handlers/commands.py` |
 | `/scan <url>` | استخراج روابط فيديو من صفحة | `handlers/scan.py` |
 | `/pdf <url>` | تحويل صفحة لـ PDF | `handlers/pdf.py` |
-| `/torrent <كلمة>` | بحث ISO أوبونتو الرسمي | `handlers/torrent.py` |
+| `/torrent <كلمة>` | بحث مصادر Ubuntu/Debian/Fedora الرسمية | `handlers/torrent.py` |
 | رفع ملف `.torrent` | تنزيل محتوى التورينت | `handlers/torrent.py` |
 | `/speedtest` | قياس سرعة السيرفر | `handlers/tools.py` |
 | `/logs` | آخر اللوج | `handlers/tools.py` |
@@ -92,7 +92,7 @@ learning-programming-app/
 |-----------|-----------|--------|
 | `/secret search <كلمات>` أو `/secret s <كلمات>` | بحث على **wow.xxx** + صفحات + أزرار تحميل | `handlers/secret.py` |
 | Inline: `@BotName <كلمات>` | نفس البحث داخل تيليجرام | `secret_inline_query` في `secret.py` |
-| Inline: `@BotName t ubuntu` أو `ubuntu…` | بحث تورينت أوبونتو | `main.py` يوجّه لـ torrent |
+| Inline: `@BotName t ubuntu` أو `ubuntu` أو `debian` أو `fedora` | بحث تورنت في المصادر الرسمية المفعّلة | `main.py` يوجّه لـ torrent |
 | `/setcookies` ثم ملف/نص cookies | كوكيز yt-dlp | `handlers/cookies.py` |
 
 ### أزرار `/secret`
@@ -176,6 +176,10 @@ DOWNLOAD_TIMEOUT_SECONDS=1800
 SECRET_BASE_URL=https://www.wow.xxx/
 SECRET_PAGE_SIZE=15
 SECRET_MAX_RESULTS=60
+
+# المصادر القانونية الافتراضية للتورنت؛ يمكن تفعيل/تعطيل كل مصدر من /settings
+TORRENT_SOURCES=ubuntu,debian,fedora
+TORRENT_MAX_RESULTS=30
 ```
 
 **لا يوجد بعد الآن:** `AI_API_KEY`, `AI_BASE_URL`, `AI_MODEL`, `AI_CHAT_MODE`, `SECRET_SITES`, `SECRET_PARALLEL_SITES`.
@@ -212,8 +216,8 @@ docker logs --tail 50 video-bot
 
 1. **`/secret` للمالك فقط** — لا تفتحه للعامة.
 2. **بحث secret = wow.xxx فقط** — المالك طلب إزالة المواقع المتعددة والـ AI.
-3. **تورنت عام مرفوض** — فقط Ubuntu من Canonical أو ملف `.torrent` يرسله المستخدم.
-4. **Inline الافتراضي = secret**؛ تورينت يحتاج `t ` أو `ubuntu`.
+3. **مصادر التورنت مقيّدة** — البحث يقتصر على Ubuntu وDebian وFedora الرسمية، ويمكن إدارة المصادر المفعّلة من `/settings`؛ ما يزال قبول ملف `.torrent` المباشر مدعومًا.
+4. **Inline الافتراضي = secret**؛ تورينت يحتاج `t ` أو `torrent ` أو بداية استعلام بـ `ubuntu` أو `debian` أو `fedora`.
 5. **Thumbnails في inline** قد يرفضها تيليجرام → الكود يعيد المحاولة بدون صور.
 6. لا تخزّن أسرار (توكنات) في الكود أو في هذا الملف.
 
@@ -223,6 +227,7 @@ docker logs --tail 50 video-bot
 
 | تاريخ | ماذا حصل |
 |-------|----------|
+| 2026-08-13 | إضافة قبول شروط الاستخدام ومحرك تورنت مدمج لمصادر Ubuntu وDebian وFedora الرسمية، مع إدارة المصادر من `/settings` |
 | 2026-07-30 | إزالة كاملة للـ AI والملفات المرتبطة |
 | 2026-07-30 | `/secret` يقتصر على wow.xxx + pagination + inline |
 | 2026-07-30 | إصلاح توجيه callbacks لكل `secret*` |
@@ -242,7 +247,8 @@ docker logs --tail 50 video-bot
    - حدّث القسم المناسب هنا (أوامر، ملفات، env، changelog).
    - لا تكسر بوابة `TELEGRAM_OWNER_ID` على secret.
 4. اختبار يدوي مقترح:
-   - `/start` → `/stats`
+   - `/start` → قبول شروط الاستخدام → `/stats`
+   - `/torrent ubuntu` وinline: `t fedora`
    - رابط يوتيوب بسيط
    - `/secret search milf`
    - `@bot milf` (بعد تفعيل Inline في BotFather)
