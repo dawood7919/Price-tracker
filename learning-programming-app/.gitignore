@@ -3,10 +3,6 @@ __pycache__/
 .venv/
 venv/
 .env
-SECRETS.env
-*.secrets
-.env.local
-.env.production
 *.log
 .pytest_cache/
 .ruff_cache/

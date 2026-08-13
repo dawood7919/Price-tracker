@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: telegram-video-bot
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # Set this in the Render dashboard (never commit it)
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      # From https://my.telegram.org — set both to enable 2GB uploads via a
+      # Local Bot API Server (start.sh launches it automatically). Leave
+      # both unset to stay on the standard 50MB Cloud Bot API.
+      - key: TELEGRAM_API_ID
+        sync: false
+      - key: TELEGRAM_API_HASH
+        sync: false
+      # Optional: contents of a cookies.txt exported from your own logged-in
+      # browser session, for sites/tweets that need auth (e.g. sensitive or
+      # protected content on X). Written to disk at startup. Never commit an
+      # actual cookies file to the repo — this is a live login credential.
+      - key: YTDLP_COOKIES_CONTENT
+        sync: false
+      # Your own numeric Telegram user ID — enables /setcookies so you can
+      # send a cookies.txt straight to the bot instead of redeploying.
+      # Leave unset to disable /setcookies entirely (safe default).
+      - key: TELEGRAM_OWNER_ID
+        sync: false
+      # Render injects RENDER_EXTERNAL_URL automatically; the bot uses it
+      # as the webhook base URL, so no extra URL config is needed.
+      # Global cap only — no daily or per-user limit (removed on request)
+      - key: MAX_CONCURRENT_DOWNLOADS
+        value: "20"
+      - key: MIN_FREE_DISK_MB
+        value: "500"

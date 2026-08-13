@@ -1,0 +1,8 @@
+python-telegram-bot[webhooks]==21.11.1
+# No upper bound: YouTube changes its bot-detection often, always pull the newest fix.
+# curl-cffi extra enables browser impersonation, needed to get past Cloudflare's anti-bot checks.
+yt-dlp[default,curl-cffi]>=2025.1.15
+pydantic-settings>=2.7
+aiohttp>=3.11
+psutil>=6.0
+speedtest-cli>=2.1.3
