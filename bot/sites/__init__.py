@@ -1,1 +1,1 @@
-"""Per-site search helpers."""
+"""Site-specific scrapers."""
