@@ -1,12 +1,20 @@
-"""Download the real content described by a .torrent file, via aria2c
-(already used elsewhere in this project for HTTP downloads — it also
-speaks BitTorrent directly). Generic: this module has no idea what the
-.torrent file describes; the caller is responsible for only pointing it at
-legitimate content.
+"""Full BitTorrent download engine via aria2c.
+
+Supports:
+  - local .torrent files
+  - magnet: URIs
+  - progress with total size (parsed from torrent metadata when available)
+  - cancel via threading.Event
+  - DHT / LPD / multiple trackers
+
+Generic: this module does not decide *what* is legitimate to download —
+callers are responsible for the source of the torrent/magnet.
 """
 
 from __future__ import annotations
 
+import hashlib
+import re
 import shutil
 import subprocess
 import threading
@@ -19,6 +27,104 @@ class TorrentDownloadError(RuntimeError):
     pass
 
 
+VIDEO_EXTS = {
+    ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v",
+    ".mpg", ".mpeg", ".ts", ".m2ts", ".vob", ".3gp", ".ogv",
+}
+
+MAGNET_RE = re.compile(r"magnet:\?[^"]+", re.IGNORECASE)
+
+
+def is_magnet_uri(text: str) -> bool:
+    t = (text or "").strip()
+    return t.lower().startswith("magnet:?")
+
+
+def extract_magnet(text: str) -> str | None:
+    if not text:
+        return None
+    m = MAGNET_RE.search(text)
+    return m.group(0).strip() if m else None
+
+
+def parse_magnet_name(magnet: str) -> str:
+    """Best-effort display name from dn= parameter."""
+    from urllib.parse import parse_qs, unquote, urlparse
+    try:
+        qs = parse_qs(urlparse(magnet).query)
+        dn = qs.get("dn", [None])[0]
+        if dn:
+            return unquote(dn)[:120]
+    except Exception:
+        pass
+    # xt=urn:btih:HASH
+    m = re.search(r"xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})", magnet)
+    if m:
+        return f"magnet-{m.group(1)[:12]}"
+    return "magnet-download"
+
+
+def _bdecode(data: bytes, index: int = 0):
+    """Minimal bencode decoder for torrent metadata."""
+    if index >= len(data):
+        raise ValueError("truncated bencode")
+    c = data[index:index + 1]
+    if c == b"i":
+        end = data.index(b"e", index)
+        return int(data[index + 1:end]), end + 1
+    if c == b"l":
+        index += 1
+        out = []
+        while data[index:index + 1] != b"e":
+            val, index = _bdecode(data, index)
+            out.append(val)
+        return out, index + 1
+    if c == b"d":
+        index += 1
+        out = {}
+        while data[index:index + 1] != b"e":
+            key, index = _bdecode(data, index)
+            val, index = _bdecode(data, index)
+            out[key] = val
+        return out, index + 1
+    # string: <len>:<data>
+    colon = data.index(b":", index)
+    length = int(data[index:colon])
+    start = colon + 1
+    end = start + length
+    return data[start:end], end
+
+
+def parse_torrent_meta(torrent_bytes: bytes) -> dict:
+    """Parse name, total size, and file list from a .torrent."""
+    try:
+        root, _ = _bdecode(torrent_bytes)
+        if not isinstance(root, dict):
+            return {}
+        info = root.get(b"info") or {}
+        name_b = info.get(b"name") or b"torrent"
+        name = name_b.decode("utf-8", errors="replace") if isinstance(name_b, bytes) else str(name_b)
+        files = []
+        total = 0
+        if b"files" in info:
+            for f in info[b"files"]:
+                length = int(f.get(b"length") or 0)
+                path_parts = f.get(b"path") or []
+                parts = [
+                    (p.decode("utf-8", errors="replace") if isinstance(p, bytes) else str(p))
+                    for p in path_parts
+                ]
+                files.append({"path": "/".join(parts), "length": length})
+                total += length
+        else:
+            length = int(info.get(b"length") or 0)
+            files.append({"path": name, "length": length})
+            total = length
+        return {"name": name, "total_size": total, "files": files}
+    except Exception:
+        return {}
+
+
 def _dir_size_bytes(path: Path) -> int:
     total = 0
     for p in path.rglob("*"):
@@ -27,39 +133,55 @@ def _dir_size_bytes(path: Path) -> int:
     return total
 
 
-def _pick_largest_file(out_dir: Path) -> Path | None:
-    files = [p for p in out_dir.rglob("*") if p.is_file() and p.suffix != ".torrent"]
+def collect_media_files(out_dir: Path) -> list[Path]:
+    """Return media files sorted by size descending (largest first)."""
+    files = [
+        p for p in out_dir.rglob("*")
+        if p.is_file()
+        and p.suffix.lower() in VIDEO_EXTS
+        and p.suffix.lower() != ".torrent"
+    ]
     if not files:
-        return None
-    return max(files, key=lambda p: p.stat().st_size)
+        # fallback: any non-tiny non-torrent file
+        files = [
+            p for p in out_dir.rglob("*")
+            if p.is_file()
+            and p.suffix.lower() != ".torrent"
+            and p.stat().st_size >= 1024
+        ]
+    files.sort(key=lambda p: p.stat().st_size, reverse=True)
+    return files
 
 
 def download_torrent(
-    torrent_file: Path,
+    torrent_input: Path | str,
     out_dir: Path,
-    progress_callback: Callable[[int, float | None], None] | None = None,
+    progress_callback: Callable[[int, float | None, int | None], None] | None = None,
     cancel_event: "threading.Event | None" = None,
-) -> Path:
+    total_hint: int | None = None,
+) -> list[Path]:
     """Blocking — always run via asyncio.to_thread.
 
-    *progress_callback*, if given, is called roughly once a second with
-    (downloaded_bytes, speed_bytes_per_sec). Total size isn't reported —
-    getting it would mean parsing the .torrent file's bencoded metadata
-    ourselves, which isn't worth it here; callers show total as unknown.
+    Returns a list of media Path objects (multi-file aware).
+    progress_callback(done_bytes, speed, total_or_None)
     """
     if not shutil.which("aria2c"):
         raise TorrentDownloadError("aria2c مش متثبت على السيرفر.")
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    # --bt-stop-timeout: stop ONLY after N consecutive seconds at 0 B/s.
-    # Was previously 1s, which killed every torrent before peers could connect.
-    # 300s (5 min) gives trackers + DHT time to find seeders on a normal VPS.
-    #
-    # DHT is enabled here: on a real Ubuntu VPS (e.g. Tencent Cloud) outbound
-    # UDP is usually allowed, and official Ubuntu torrents often need DHT (or
-    # extra trackers) when the few listed trackers are slow/unreachable.
-    # On hosts that truly block all BT/UDP, the download will still fail —
-    # but with a clear timeout after 5 minutes instead of an instant 0 B/s exit.
+
+    is_magnet = isinstance(torrent_input, str) and str(torrent_input).startswith("magnet:")
+    if not is_magnet and not Path(torrent_input).is_file():
+        raise TorrentDownloadError("ملف التورنت غير موجود.")
+
+    # Try to get total size from .torrent for better progress
+    if total_hint is None and not is_magnet:
+        try:
+            meta = parse_torrent_meta(Path(torrent_input).read_bytes())
+            total_hint = meta.get("total_size")
+        except Exception:
+            pass
+
     cmd = [
         "aria2c",
         "--seed-time=0",
@@ -80,12 +202,8 @@ def download_torrent(
         "--dht-listen-port=6881-6999",
         "--dir",
         str(out_dir),
-        str(torrent_file),
+        str(torrent_input),
     ]
-    # aria2c writes most of its actual diagnostic/error output to stdout, not
-    # stderr — capturing stderr alone (as this used to) silently threw away
-    # the real reason for any failure, leaving only a bare "فشل تحميل
-    # التورنت." with nothing to act on.
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
     last_bytes = 0
@@ -102,26 +220,27 @@ def download_torrent(
         speed = (done - last_bytes) / elapsed if elapsed > 0 else None
         last_bytes, last_time = done, now
         if progress_callback is not None:
-            progress_callback(done, speed)
+            progress_callback(done, speed, total_hint)
 
     output = proc.stdout.read().decode(errors="ignore").strip() if proc.stdout else ""
-    detail = output[-500:] if output else ""
+    detail = output[-600:] if output else ""
 
     if proc.returncode != 0:
-        raise TorrentDownloadError(f"فشل تحميل التورنت{': ' + detail if detail else ''}.")
+        raise TorrentDownloadError(
+            f"فشل تحميل التورنت{': ' + detail if detail else ''}."
+        )
 
-    result = _pick_largest_file(out_dir)
-    if result is None:
+    results = collect_media_files(out_dir)
+    if not results:
         raise TorrentDownloadError(
             "التحميل خلص من غير ما ينتج ملف"
             + (f": {detail}" if detail else ".")
         )
-    # Guard against a "successful" exit that only left an empty/tiny stub
-    # (e.g. metadata-only after a zero-speed timeout that still returned 0).
-    if result.stat().st_size < 1024:
+    results = [p for p in results if p.stat().st_size >= 1024]
+    if not results:
         raise TorrentDownloadError(
-            f"الملف الناتج فاضي أو صغير جدًا ({result.stat().st_size} bytes) — "
+            "الملفات الناتجة فاضية أو صغيرة جدًا — "
             "غالبًا مفيش peers أو الشبكة بتمنع BitTorrent."
             + (f"\n{detail}" if detail else "")
         )
-    return result
+    return results
