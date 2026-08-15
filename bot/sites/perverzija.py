@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 
 BASE = "https://tube.perverzija.com"
 SEARCH_URL = BASE + "/?s={query}"
+_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 
 _VIDEO_HREF_RE = re.compile(
     r'href=["\']([^"\']+/(?:video|watch|\d+)[^"\']*)["\']',
@@ -24,17 +28,21 @@ _IMG_RE = re.compile(
 _TITLE_RE = re.compile(r'title=["\']([^"\']+)["\']', re.I)
 
 
-async def search(query: str, limit: int = 20) -> list[dict]:
+async def search(query: str, timeout: float = 20.0, limit: int = 40) -> list[dict]:
     """Search Perverzija and return list of {title, url, thumb}."""
-    url = SEARCH_URL.format(query=quote_plus(query))
+    q = (query or "").strip()
+    if len(q) < 2:
+        return []
+
+    url = SEARCH_URL.format(query=quote_plus(q))
     results: list[dict] = []
     try:
-        timeout = aiohttp.ClientTimeout(total=20)
+        timeout_cfg = aiohttp.ClientTimeout(total=min(timeout, 25))
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "User-Agent": _USER_AGENT,
             "Accept-Language": "en-US,en;q=0.9",
         }
-        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+        async with aiohttp.ClientSession(timeout=timeout_cfg, headers=headers) as session:
             async with session.get(url) as resp:
                 if resp.status >= 400:
                     logger.warning("perverzija search HTTP %s", resp.status)
@@ -44,11 +52,12 @@ async def search(query: str, limit: int = 20) -> list[dict]:
         logger.warning("perverzija search failed: %s", exc)
         return []
 
-    # Pair nearby href + img
     seen: set[str] = set()
-    # Split into rough card blocks
-    blocks = re.split(r'<(?:article|div)[^>]+class=["\'][^"\']*(?:post|video|item|thumb)[^"\']*["\']',
-                      html, flags=re.I)
+    blocks = re.split(
+        r'<(?:article|div)[^>]+class=["\'][^"\']*(?:post|video|item|thumb)[^"\']*["\']',
+        html,
+        flags=re.I,
+    )
     for block in blocks[1:]:
         hrefs = _VIDEO_HREF_RE.findall(block)
         imgs = _IMG_RE.findall(block)
@@ -75,7 +84,6 @@ async def search(query: str, limit: int = 20) -> list[dict]:
         if len(results) >= limit:
             break
 
-    # Fallback: global scan if blocks failed
     if not results:
         for m in _VIDEO_HREF_RE.finditer(html):
             href = m.group(1)
@@ -84,9 +92,8 @@ async def search(query: str, limit: int = 20) -> list[dict]:
             if href in seen or "perverzija" not in href:
                 continue
             seen.add(href)
-            # look for nearby img in a window
             start = max(0, m.start() - 400)
-            window = html[start:m.end() + 200]
+            window = html[start : m.end() + 200]
             imgs = _IMG_RE.findall(window)
             thumb = ""
             for img in imgs:
