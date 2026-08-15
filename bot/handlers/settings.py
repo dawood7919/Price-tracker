@@ -146,6 +146,7 @@ async def _safe_edit(query, config: Config, video_page: int = 0) -> None:
     text = _text(config)
     markup = _markup(config, video_page)
 
+    # 1) Full edit (text + keyboard)
     try:
         await query.edit_message_text(text=text, reply_markup=markup, parse_mode="HTML")
         return
@@ -157,6 +158,7 @@ async def _safe_edit(query, config: Config, video_page: int = 0) -> None:
     except Exception:
         logger.exception("settings edit_message_text unexpected")
 
+    # 2) Markup only
     try:
         await query.edit_message_reply_markup(reply_markup=markup)
         return
@@ -167,6 +169,7 @@ async def _safe_edit(query, config: Config, video_page: int = 0) -> None:
     except Exception:
         logger.warning("settings edit_reply_markup failed", exc_info=True)
 
+    # 3) Fresh message as last resort
     try:
         chat = query.message.chat if query.message else None
         if chat is not None:
@@ -183,6 +186,7 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
     data = query.data
     config: Config = context.bot_data["config"]
 
+    # Always ack quickly so Telegram stops the loading spinner.
     async def _ack(text: str | None = None, alert: bool = False) -> None:
         try:
             if text:

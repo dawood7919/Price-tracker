@@ -16,19 +16,23 @@ from ..version import BOT_VERSION
 START_TEXT = (
     "أهلًا 👋\n"
     "<code>v{version}</code>\n\n"
-    "ابعت لينك فيديو وهنزّلهولك (جودة لحد 4K).\n\n"
-    "⚙️ <b>/settings</b> — اختيار موقع البحث\n"
-    "🔍 <code>/secret search كلمة</code> أو inline\n"
-    "🧲 <code>/torrent ubuntu</code> أو inline: <code>t ubuntu</code>\n\n"
-    "أوامر: /stats /scan /pdf /torrent /settings /terms /speedtest /logs /killall\n"
+    "📹 <b>فيديو:</b> ابعت لينك → اختار الجودة\n"
+    "🔍 <b>بحث فيديو:</b> <code>/secret search كلمة</code> أو inline\n"
+    "🧲 <b>بحث تورنت:</b> <code>/torrent كلمة</code> أو inline: <code>t كلمة</code>\n"
+    "   • صور + تفاصيل → ⬇️ تحميل فورًا\n"
+    "   • ملفات متعددة تتبعت واحد واحد\n"
+    "   • أكبر من حد الرفع (لحد 2GB مع Local API) يتقسّم\n\n"
+    "⚙️ /settings · /stats /scan /pdf /terms /speedtest /logs /killall\n"
     "حد الجزء: {limit}"
 )
 
 HELP_TEXT = (
     "📖 <b>الاستخدام</b> · <code>v{version}</code>\n\n"
-    "1️⃣ ابعت لينك → اختار الجودة\n"
-    "2️⃣ /settings لاختيار موقع البحث\n"
-    "3️⃣ /secret search كلمة\n\n"
+    "1️⃣ <b>فيديو برابط:</b> ابعت لينك → اختار الجودة\n"
+    "2️⃣ <b>بحث فيديو:</b> /secret search كلمة أو inline\n"
+    "3️⃣ <b>بحث تورنت:</b> /torrent كلمة — النتائج بصور وزر تحميل\n"
+    "   كمان: ملف .torrent أو رابط magnet:?\n"
+    "4️⃣ /settings — موقع الفيديو + مصادر التورنت\n\n"
     "الموقع النشط: <b>{site}</b>\n"
     "حد الجزء: {limit}"
 )

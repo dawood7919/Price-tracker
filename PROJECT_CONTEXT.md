@@ -3,9 +3,9 @@
 > **الغرض:** أي ذكاء اصطناعي أو مطوّر يشتغل على المشروع **يقرأ هذا الملف أولًا** قبل أي تعديل.
 > **قاعدة ذهبية:** بعد كل إضافة أو حذف أو تغيير سلوك مهم → حدّث هذا الملف في نفس الـ commit أو مباشرة بعده.
 
-**آخر تحديث:** 2026-07-30
-**الفرع النشط للتشغيل:** `claude/telegram-bot-learning-app-1uhdf0`
-**المستودع:** `dawood7919/learning-programming-app` (قد يكون Private)
+**آخر تحديث:** 2026-08-14
+**الفرع النشط للتشغيل:** `claude/session-guidance-afegtt`
+**المستودع:** `dawood7919/Price-tracker`
 
 ---
 
@@ -20,7 +20,7 @@
 | تقسيم الملفات الكبيرة | لو تجاوز حد الرفع |
 | `/secret` | بحث **wow.xxx فقط** (صاحب البوت) |
 | Inline | `@bot كلمة` → نتائج wow.xxx |
-| تورينت | بحث المصادر الرسمية Ubuntu وDebian وFedora + رفع ملف `.torrent` |
+| تورينت كامل | بحث Ubuntu/Debian/Fedora + ملف `.torrent` + روابط `magnet:?` + تقدم %/ETA + DHT |
 | أدوات | scan، pdf، stats، logs، killall، speedtest، cookies |
 
 **مهم:** تم **إزالة كل مميزات الـ AI** (`/ai`، chat mode، ai_tools، Groq). لا تستخدمها ولا تعيدها إلا بطلب صريح من المالك.
@@ -218,7 +218,7 @@ docker logs --tail 50 video-bot
 
 1. **`/secret` للمالك فقط** — لا تفتحه للعامة.
 2. **بحث secret = wow.xxx فقط** — المالك طلب إزالة المواقع المتعددة والـ AI.
-3. **مصادر التورنت مقيّدة** — البحث يقتصر على Ubuntu وDebian وFedora الرسمية، ويمكن إدارة المصادر المفعّلة من `/settings`؛ ما يزال قبول ملف `.torrent` المباشر مدعومًا.
+3. **مصادر التورنت** — الافتراضي: Ubuntu/Debian/Fedora الرسمية. مصادر عامة اختيارية (PirateBay, YTS, EZTV, SolidTorrents, Torrents-CSV, Nyaa, 1337x) تُفعَّل من `/settings`. قبول ملف `.torrent` و`magnet:?` مدعوم دائمًا.
 4. **Inline الافتراضي = secret**؛ تورينت يحتاج `t ` أو `torrent ` أو بداية استعلام بـ `ubuntu` أو `debian` أو `fedora`.
 5. **Thumbnails في inline** قد يرفضها تيليجرام → الكود يعيد المحاولة بدون صور.
 6. لا تخزّن أسرار (توكنات) في الكود أو في هذا الملف.
@@ -229,6 +229,10 @@ docker logs --tail 50 video-bot
 
 | تاريخ | ماذا حصل |
 |-------|----------|
+| 2026-08-14 | تورنت: بطاقات بصور + تحميل فوري + إرسال كل فيديو لوحده + تقسيم فوق حد الرفع (2GB مع Local API) |
+| 2026-08-14 | مصادر إضافية: EZTV + SolidTorrents + Torrents-CSV + صور IMDb لـ PirateBay |
+| 2026-08-14 | مصادر تورنت عامة اختيارية: PirateBay / YTS / Nyaa / 1337x (تعطيل افتراضي، تفعيل من /settings) |
+| 2026-08-14 | **محرك تورنت كامل**: استعادة handlers، دعم magnet:، تقدم % + ETA، قراءة metadata من .torrent، لصق magnet كرسالة |
 | 2026-08-13 | إضافة تشغيل Docker Compose دائم بوضع Polling وحفظ حالة `/settings` وقبول الشروط على Ubuntu |
 | 2026-08-13 | إضافة قبول شروط الاستخدام ومحرك تورنت مدمج لمصادر Ubuntu وDebian وFedora الرسمية، مع إدارة المصادر من `/settings` |
 | 2026-07-30 | إزالة كاملة للـ AI والملفات المرتبطة |

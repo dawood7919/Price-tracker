@@ -22,6 +22,7 @@ SEARCH_SITES: dict[str, dict[str, str]] = {
     "hqporner": {"label": "HQ Porner", "home": "https://hqporner.com/"},
     "noodlemagazine": {"label": "NoodleMagazine", "home": "https://noodlemagazine.com/"},
     "perverzija": {"label": "Perverzija", "home": "https://tube.perverzija.com/"},
+    # AdultColony-only extras (search via API when ADULTCOLONY_BASE_URL is set)
     "hentaifox": {"label": "HentaiFox", "home": "https://hentaifox.com/"},
     "hentaicity": {"label": "HentaiCity", "home": "https://www.hentaicity.com/"},
     "xasiat": {"label": "XAsiat", "home": "https://www.xasiat.com/"},
@@ -33,10 +34,14 @@ SEARCH_SITES: dict[str, dict[str, str]] = {
 
 DEFAULT_SITE = "wow"
 
+# Torrent search providers. Official ISOs are ON by default.
+# Public indexes are OFF by default — enable them from /settings.
 TORRENT_SITES: dict[str, dict[str, str]] = {
+    # --- official ---
     "ubuntu": {"label": "Ubuntu الرسمي", "home": "https://releases.ubuntu.com/"},
     "debian": {"label": "Debian الرسمي", "home": "https://www.debian.org/CD/torrent-cd/"},
     "fedora": {"label": "Fedora الرسمي", "home": "https://fedoraproject.org/torrents/"},
+    # --- public (optional, enable in /settings) ---
     "piratebay": {"label": "Pirate Bay", "home": "https://thepiratebay.org/"},
     "yts": {"label": "YTS (أفلام)", "home": "https://yts.mx/"},
     "eztv": {"label": "EZTV (مسلسلات)", "home": "https://eztv.re/"},
@@ -104,6 +109,7 @@ def _normalize_torrent_sources(value: object) -> tuple[str, ...]:
 
 
 def get_active_torrent_sources(configured_sources: str | None = None) -> tuple[str, ...]:
+    """Return persistent user choices, falling back to the env configuration."""
     saved = _load().get("torrent_sources")
     selected = _normalize_torrent_sources(saved)
     if selected:
@@ -113,6 +119,7 @@ def get_active_torrent_sources(configured_sources: str | None = None) -> tuple[s
 
 
 def toggle_torrent_source(source_id: str, configured_sources: str | None = None) -> tuple[str, ...]:
+    """Toggle one provider while always preserving at least one active source."""
     source_id = source_id.strip().lower()
     if source_id not in TORRENT_SITES:
         raise ValueError(f"unknown torrent source: {source_id}")

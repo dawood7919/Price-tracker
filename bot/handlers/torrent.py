@@ -52,27 +52,9 @@ MAX_PENDING_PER_USER = 20
 MAX_PENDING_INLINE_RESULTS = 200
 INLINE_RESULT_TTL_SECONDS = 15 * 60
 MAX_TORRENT_FILE_BYTES = 2 * 1024 * 1024  # real .torrent descriptors are a few KB
-MAX_PHOTO_CARDS = 8
 
 
-def _format_size(size_bytes: int | float | None) -> str:
-    if not size_bytes:
-        return "N/A"
-    try:
-        size = float(size_bytes)
-    except (ValueError, TypeError):
-        return str(size_bytes)
-    for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if abs(size) < 1024.0:
-            return f"{size:.1f} {unit}"
-        size /= 1024.0
-    return f"{size:.1f} PB"
-
-
-def cancel_markup(job_id: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🚫 إلغاء", callback_data=f"cancel:{job_id}")]]
-    )
+# ---------------------------------------------------------------- /torrent
 
 
 async def torrent_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -94,6 +76,7 @@ async def torrent_search_command(update: Update, context: ContextTypes.DEFAULT_T
         )
         return
 
+    # If the argument is itself a magnet, download directly.
     if is_magnet_uri(query):
         await _start_magnet_download(update.message, context, query)
         return
@@ -102,7 +85,10 @@ async def torrent_search_command(update: Update, context: ContextTypes.DEFAULT_T
     results = await search_torrents(query, config)
     if not results:
         await update.message.reply_text(
-            "مفيش نتايج.\nجرّب كلمة تانية أو غيّر مصدر التورنت من /settings.",
+            "مفيش نتايج للكلمة دي.\n\n"
+            "ℹ️ فعّل مصادر إضافية من <code>/settings</code> "
+            "(PirateBay / YTS / EZTV / Solid / CSV / Nyaa / 1337x) أو جرّب كلمة أوضح.\n\n"
+            "تقدر كمان تبعت ملف <code>.torrent</code> أو رابط <code>magnet:?</code>.",
             parse_mode="HTML",
         )
         return
@@ -111,66 +97,86 @@ async def torrent_search_command(update: Update, context: ContextTypes.DEFAULT_T
     if len(pending) >= MAX_PENDING_PER_USER:
         pending.clear()
 
-    # Photo cards for results that have thumbs
-    photo_sent = 0
-    for item in results[:MAX_PHOTO_CARDS]:
+    # Cap how many photo cards we send to avoid flooding the chat.
+    MAX_PHOTO_CARDS = 15
+    shown = results[:MAX_PHOTO_CARDS]
+    extra = len(results) - len(shown)
+
+    await update.message.reply_text(
+        f"🧲 <b>نتائج بحث التورنت</b> ({len(results)})\n"
+        "اضغط ⬇️ تحميل جنب النتيجة اللي عايزها — التحميل يبدأ فورًا.",
+        parse_mode="HTML",
+    )
+
+    for item in shown:
         key = uuid.uuid4().hex[:8]
         pending[key] = item
-        thumb = item.get("thumb") or item.get("poster") or ""
         caption = (
-            f"🎬 <b>{html.escape(item.get('name', 'torrent'))}</b>\n"
-            f"📦 {item.get('size', '?')} · 🌱 {item.get('seeders', '?')}\n"
-            f"📡 {html.escape(str(item.get('source', '')))}"
+            f"🎬 <b>{html.escape(item['name'][:120])}</b>\n"
+            f"📡 {html.escape(item['source'])}\n"
+            f"📦 {html.escape(str(item.get('size') or '?'))} · 🌱 {html.escape(str(item.get('seeders') or '?'))}"
         )
-        kb = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("⬇️ تحميل", callback_data=f"torrentdl:{key}")]]
+        markup = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("⬇️ تحميل الآن", callback_data=f"torrentdl:{key}")]]
         )
+        thumb = (item.get("thumb") or "").strip()
         try:
-            if thumb:
+            if thumb.startswith("http"):
                 await update.message.reply_photo(
-                    photo=thumb, caption=caption, parse_mode="HTML", reply_markup=kb
+                    photo=thumb,
+                    caption=caption,
+                    parse_mode="HTML",
+                    reply_markup=markup,
                 )
             else:
                 await update.message.reply_text(
-                    caption, parse_mode="HTML", reply_markup=kb
+                    caption, parse_mode="HTML", reply_markup=markup
                 )
-            photo_sent += 1
         except Exception:
-            logger.exception("Failed to send torrent result card")
-            with contextlib.suppress(Exception):
-                await update.message.reply_text(
-                    caption, parse_mode="HTML", reply_markup=kb
-                )
+            # Photo URL may be blocked — fall back to text card.
+            await update.message.reply_text(
+                caption, parse_mode="HTML", reply_markup=markup
+            )
 
-    # Remaining as buttons
-    buttons = []
-    for item in results[MAX_PHOTO_CARDS:]:
-        key = uuid.uuid4().hex[:8]
-        pending[key] = item
-        label = f"{item.get('name', 'torrent')[:40]} · {item.get('size', '?')}"
-        buttons.append(
-            [InlineKeyboardButton(label, callback_data=f"torrentdl:{key}")]
-        )
-    if buttons:
+    if extra > 0:
+        # Remaining as compact buttons
+        buttons = []
+        for item in results[MAX_PHOTO_CARDS:]:
+            key = uuid.uuid4().hex[:8]
+            pending[key] = item
+            label = f"{item['name'][:40]} · {item.get('size', '?')}"
+            buttons.append(
+                [InlineKeyboardButton(label, callback_data=f"torrentdl:{key}")]
+            )
         await update.message.reply_text(
-            f"باقي النتائج ({len(buttons)}):", reply_markup=InlineKeyboardMarkup(buttons)
+            f"و {extra} نتيجة إضافية:",
+            reply_markup=InlineKeyboardMarkup(buttons),
         )
+
+
+# ------------------------------------------------------------- inline mode
 
 
 async def torrent_inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     inline_query = update.inline_query
     if inline_query is None:
         return
+
     query = inline_query.query.strip()
-    if query.lower().startswith("t "):
-        query = query[2:].strip()
+    lower = query.lower()
+    for prefix in ("torrent ", "t "):
+        if lower.startswith(prefix):
+            query = query[len(prefix) :].strip()
+            break
     if not query:
         return
 
     config: Config = context.bot_data["config"]
     results = await search_torrents(query, config)
 
-    pending: dict = context.bot_data.setdefault("inline_torrent_results", {})
+    pending: dict[str, tuple[dict, float]] = context.bot_data.setdefault(
+        "inline_torrent_results", {}
+    )
     now = time.monotonic()
     for stale_key, (_item, created_at) in list(pending.items()):
         if now - created_at > INLINE_RESULT_TTL_SECONDS:
@@ -179,27 +185,47 @@ async def torrent_inline_query(update: Update, context: ContextTypes.DEFAULT_TYP
         pending.clear()
 
     answers = []
-    for item in results[:50]:
+    for item in results:
         key = uuid.uuid4().hex[:8]
         pending[key] = (item, now)
+        thumb = (item.get("thumb") or "").strip()
+        kwargs = {}
+        if thumb.startswith("http"):
+            kwargs["thumbnail_url"] = thumb
         answers.append(
             InlineQueryResultArticle(
                 id=key,
-                title=item.get("name", "torrent")[:64],
-                description=f"{item.get('size', '?')} · seeds {item.get('seeders', '?')} · {item.get('source', '')}",
+                title=item["name"][:64],
+                description=f"{item['source']} — {item.get('size', '?')} · {item.get('seeders', '')}",
                 input_message_content=InputTextMessageContent(
-                    f"🎬 {item.get('name', 'torrent')}"
+                    f"🧲 {item['name']}\n📦 {item.get('size', '?')} · 🌱 {item.get('seeders', '?')}"
                 ),
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("⬇️ تحميل", callback_data=f"torrentdl:{key}")]]
+                    [[InlineKeyboardButton("⬇️ تحميل الآن", callback_data=f"torrentdl:{key}")]]
                 ),
+                **kwargs,
             )
         )
     await inline_query.answer(answers, cache_time=10)
 
 
+# ---------------------------------------------------------- shared download
+
+
+def cancel_markup(job_id: str) -> InlineKeyboardMarkup:
+    """Cancel button routed to the shared ``cancel:<job_id>`` handler."""
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🚫 إلغاء", callback_data=f"cancel:{job_id}")]]
+    )
+
+
 async def _notify_torrent_failure(
-    bot: Bot, config: Config, *, name: str, user_id: int, reason: str
+    bot: Bot,
+    config: Config,
+    *,
+    name: str,
+    user_id: int,
+    reason: str,
 ) -> None:
     text = (
         "🚨 <b>فشل تورينت</b>\n"
@@ -226,6 +252,9 @@ async def _run_torrent_download(
     bot: Bot,
     total_hint: int | None = None,
 ) -> None:
+    """Downloads whatever *torrent_input* describes (local .torrent or magnet:),
+    then uploads the largest resulting file.
+    """
     await manager.acquire_slot(user_id)
     try:
         task = asyncio.current_task()
@@ -247,17 +276,19 @@ async def _run_torrent_download(
         loop = asyncio.get_running_loop()
         last_render = 0.0
 
-        def on_progress(done_bytes: int, speed: float | None, total: int | None = None) -> None:
+        def on_progress(done_bytes: int, speed: float | None, total: int | None) -> None:
             nonlocal last_render
             now = time.monotonic()
             if now - last_render < config.edit_throttle_seconds:
                 return
             last_render = now
-            total_bytes = total if total else total_hint
-            percent = (done_bytes / total_bytes * 100.0) if total_bytes else 0.0
+            total_bytes = total if total and total > 0 else None
+            percent = 0.0
             eta = None
-            if speed and total_bytes and speed > 0:
-                eta = max(0, (total_bytes - done_bytes) / speed)
+            if total_bytes and total_bytes > 0:
+                percent = min(100.0, (done_bytes / total_bytes) * 100.0)
+                if speed and speed > 0:
+                    eta = (total_bytes - done_bytes) / speed
             panel = format_progress_panel(
                 phase="download",
                 percent=percent,
@@ -271,7 +302,12 @@ async def _run_torrent_download(
 
         try:
             result_paths = await asyncio.to_thread(
-                download_torrent, torrent_input, job_dir, on_progress, cancel_event
+                download_torrent,
+                torrent_input,
+                job_dir,
+                on_progress,
+                cancel_event,
+                total_hint,
             )
         except TorrentDownloadError as exc:
             if cancel_event is not None and cancel_event.is_set():
@@ -280,7 +316,7 @@ async def _run_torrent_download(
                 return
             manager.set_state(job_id, JobState.FAILED)
             reason = str(exc)
-            await status.update(f"❌ {exc}", force=True, final=True)
+            await status.update(f"❌ {html.escape(reason)}", force=True, final=True)
             await _notify_torrent_failure(bot, config, name=name, user_id=user_id, reason=reason)
             return
 
@@ -300,7 +336,7 @@ async def _run_torrent_download(
 
         uploaded = 0
         try:
-            for idx, result_path in enumerate(result_paths, 1):
+            for idx, result_path in enumerate(result_paths, start=1):
                 if cancel_event is not None and cancel_event.is_set():
                     manager.set_state(job_id, JobState.CANCELLED)
                     await status.update("🚫 <b>اتلغى الطلب.</b>", force=True, final=True)
@@ -324,7 +360,7 @@ async def _run_torrent_download(
             manager.set_state(job_id, JobState.FAILED)
             logger.exception("Torrent upload failed for %s", name)
             reason = f"فشل الرفع بعد {uploaded}/{total_files}: {error_message(exc)}"
-            await status.update(f"❌ {reason}", force=True, final=True)
+            await status.update(f"❌ {html.escape(reason)}", force=True, final=True)
             await _notify_torrent_failure(bot, config, name=name, user_id=user_id, reason=reason)
             return
 
@@ -348,6 +384,7 @@ async def _run_torrent_download(
 
 
 async def torrent_download_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles torrentdl:<key> from either /torrent results or an inline pick."""
     query = update.callback_query
     if query is None or query.data is None:
         return
@@ -391,48 +428,52 @@ async def torrent_download_button(update: Update, context: ContextTypes.DEFAULT_
         inline_message_id=inline_id,
         bot=bot,
     )
-    await status.update(f"⏳ <b>بدء تحميل</b>\n<i>{html.escape(item.get('name', 'torrent'))}</i>", force=True)
+    await status.update(f"⏳ <b>بدء تحميل</b>\n<i>{html.escape(item['name'])}</i>", force=True)
 
     job_dir.mkdir(parents=True, exist_ok=True)
-    torrent_source = item.get("torrent") or item.get("magnet") or ""
-
-    total_hint = None
-    with contextlib.suppress(Exception):
-        sz = item.get("size_bytes") or item.get("size")
-        if isinstance(sz, (int, float)):
-            total_hint = int(sz)
+    torrent_source = item["torrent"]
+    total_hint: int | None = None
 
     if str(torrent_source).startswith("magnet:"):
         torrent_input: Path | str = torrent_source
     else:
         try:
             timeout = aiohttp.ClientTimeout(total=FETCH_TIMEOUT_SECONDS)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(torrent_source) as response:
-                    if response.status >= 400:
-                        reason = f"فشل تحميل ملف .torrent (HTTP {response.status})"
-                        await status.update(f"❌ {reason}.", force=True, final=True)
-                        await _notify_torrent_failure(
-                            bot, config, name=item.get("name", "torrent"), user_id=user_id, reason=reason
-                        )
-                        shutil.rmtree(job_dir, ignore_errors=True)
-                        return
-                    torrent_bytes = await response.read()
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.get(torrent_source) as response,
+            ):
+                if response.status >= 400:
+                    reason = f"فشل تحميل ملف .torrent (HTTP {response.status})"
+                    await status.update(f"❌ {reason}.", force=True, final=True)
+                    await _notify_torrent_failure(
+                        bot, config, name=item["name"], user_id=user_id, reason=reason
+                    )
+                    shutil.rmtree(job_dir, ignore_errors=True)
+                    return
+                torrent_bytes = await response.read()
         except aiohttp.ClientError as exc:
             reason = f"فشل تحميل ملف .torrent: {exc}"
-            await status.update(f"❌ {reason}", force=True, final=True)
+            await status.update(f"❌ {html.escape(reason)}", force=True, final=True)
             await _notify_torrent_failure(
-                bot, config, name=item.get("name", "torrent"), user_id=user_id, reason=reason
+                bot, config, name=item["name"], user_id=user_id, reason=reason
             )
             shutil.rmtree(job_dir, ignore_errors=True)
             return
 
         torrent_input = job_dir / "meta.torrent"
         torrent_input.write_bytes(torrent_bytes)
+        try:
+            meta = parse_torrent_meta(torrent_bytes)
+            total_hint = meta.get("total_length")  # type: ignore[assignment]
+            if meta.get("name") and item.get("name") in ("", None):
+                item["name"] = meta["name"]
+        except Exception:
+            pass
 
     await _run_torrent_download(
         torrent_input=torrent_input,
-        name=item.get("name", "torrent"),
+        name=item["name"],
         chat_id=chat_id,
         user_id=user_id,
         job_id=job_id,
@@ -446,7 +487,11 @@ async def torrent_download_button(update: Update, context: ContextTypes.DEFAULT_
     )
 
 
+# ------------------------------------------------------ direct .torrent file
+
+
 async def torrent_document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Accepts a .torrent file sent directly as a document."""
     message = update.message
     if message is None or message.document is None:
         return
@@ -466,15 +511,17 @@ async def torrent_document_handler(update: Update, context: ContextTypes.DEFAULT
     torrent_bytes = bytes(await tg_file.download_as_bytearray())
 
     name = (document.file_name or "torrent").rsplit(".", 1)[0]
-    total_hint = None
-    with contextlib.suppress(Exception):
+    total_hint: int | None = None
+    try:
         meta = parse_torrent_meta(torrent_bytes)
         if meta.get("name"):
-            name = meta["name"]
-        total_hint = meta.get("total_size")
+            name = str(meta["name"])
+        total_hint = meta.get("total_length")  # type: ignore[assignment]
         n_files = len(meta.get("files") or [])
         if n_files > 1:
             name = f"{name} ({n_files} ملف)"
+    except Exception:
+        pass
 
     job_id = uuid.uuid4().hex[:8]
     job_dir = config.download_dir / f"torrent_{job_id}"
@@ -505,6 +552,9 @@ async def torrent_document_handler(update: Update, context: ContextTypes.DEFAULT
         bot=bot,
         total_hint=total_hint,
     )
+
+
+# ------------------------------------------------------ magnet: from message
 
 
 async def _start_magnet_download(

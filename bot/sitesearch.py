@@ -104,11 +104,12 @@ def _normalize(site: str, absolute: str) -> tuple[str, str] | None:
         return f"https://www.wow.xxx/videos/{m.group(1)}/", m.group(1)
 
     if site == "perverzija":
-        m = re.search(r"/([^/?#]+)/?$", path, re.I)
-        if not m or path in ("/", ""):
+        m = re.search(r"^/([a-z0-9][a-z0-9\-]{12,})/?$", path, re.I)
+        if not m:
             return None
         slug = m.group(1)
-        if slug in ("search", "page", "category", "tag"):
+        skip = ("studio", "studios", "stars", "tag", "tags", "category", "search", "featured", "full-movie", "vr")
+        if slug.lower().split("-")[0] in skip or slug.lower() in skip:
             return None
         return f"https://tube.perverzija.com/{slug}/", slug
 
