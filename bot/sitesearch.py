@@ -17,6 +17,7 @@ from .sites import eporner as eporner_mod
 from .sites import hqporner as hqporner_mod
 from .sites import kporno4k as kporno4k_mod
 from .sites import noodlemagazine as noodlemagazine_mod
+from .sites import perverzija as perverzija_mod
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,11 @@ def _search_urls(site: str, query: str) -> list[str]:
         return [
             f"https://www.pornhub.com/video/search?search={quote_plus(q)}",
             f"https://www.pornhub.com/video/search?search={quote_plus(q)}&page=2",
+        ]
+    if site == "perverzija":
+        return [
+            f"https://tube.perverzija.com/search/{quote_plus(q)}/",
+            f"https://tube.perverzija.com/search/{quote_plus(q)}/page/2/",
         ]
     return []
 
@@ -96,6 +102,15 @@ def _normalize(site: str, absolute: str) -> tuple[str, str] | None:
         if not m:
             return None
         return f"https://www.wow.xxx/videos/{m.group(1)}/", m.group(1)
+
+    if site == "perverzija":
+        m = re.search(r"/([^/?#]+)/?$", path, re.I)
+        if not m or path in ("/", ""):
+            return None
+        slug = m.group(1)
+        if slug in ("search", "page", "category", "tag"):
+            return None
+        return f"https://tube.perverzija.com/{slug}/", slug
 
     return None
 
@@ -175,6 +190,12 @@ async def search_videos(query: str, config: Config, site: str | None = None) -> 
 
     if site == "noodlemagazine":
         merged = await noodlemagazine_mod.search(q, timeout=timeout, limit=limit)
+        if merged:
+            _CACHE[cache_key] = (list(merged), now)
+        return merged
+
+    if site == "perverzija":
+        merged = await perverzija_mod.search(q, timeout=timeout, limit=limit)
         if merged:
             _CACHE[cache_key] = (list(merged), now)
         return merged
