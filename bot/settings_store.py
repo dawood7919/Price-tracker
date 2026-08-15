@@ -21,7 +21,7 @@ SEARCH_SITES: dict[str, dict[str, str]] = {
     "4kporno": {"label": "4KPorno", "home": "https://www.4kporno.xxx/"},
     "hqporner": {"label": "HQ Porner", "home": "https://hqporner.com/"},
     "noodlemagazine": {"label": "NoodleMagazine", "home": "https://noodlemagazine.com/"},
-    # AdultColony-only extras (search via API when ADULTCOLONY_BASE_URL is set)
+    "perverzija": {"label": "Perverzija", "home": "https://tube.perverzija.com/"},
     "hentaifox": {"label": "HentaiFox", "home": "https://hentaifox.com/"},
     "hentaicity": {"label": "HentaiCity", "home": "https://www.hentaicity.com/"},
     "xasiat": {"label": "XAsiat", "home": "https://www.xasiat.com/"},
@@ -33,12 +33,17 @@ SEARCH_SITES: dict[str, dict[str, str]] = {
 
 DEFAULT_SITE = "wow"
 
-# These providers are official project sources. Keep the list explicit so a
-# runtime setting cannot turn the bot into an unrestricted torrent index.
 TORRENT_SITES: dict[str, dict[str, str]] = {
     "ubuntu": {"label": "Ubuntu الرسمي", "home": "https://releases.ubuntu.com/"},
     "debian": {"label": "Debian الرسمي", "home": "https://www.debian.org/CD/torrent-cd/"},
     "fedora": {"label": "Fedora الرسمي", "home": "https://fedoraproject.org/torrents/"},
+    "piratebay": {"label": "Pirate Bay", "home": "https://thepiratebay.org/"},
+    "yts": {"label": "YTS (أفلام)", "home": "https://yts.mx/"},
+    "eztv": {"label": "EZTV (مسلسلات)", "home": "https://eztv.re/"},
+    "solid": {"label": "SolidTorrents", "home": "https://solidtorrents.to/"},
+    "torrcsv": {"label": "Torrents-CSV", "home": "https://torrents-csv.com/"},
+    "nyaa": {"label": "Nyaa (أنمي)", "home": "https://nyaa.si/"},
+    "x1337": {"label": "1337x", "home": "https://www.1377x.to/"},
 }
 DEFAULT_TORRENT_SOURCES = ("ubuntu", "debian", "fedora")
 
@@ -99,7 +104,6 @@ def _normalize_torrent_sources(value: object) -> tuple[str, ...]:
 
 
 def get_active_torrent_sources(configured_sources: str | None = None) -> tuple[str, ...]:
-    """Return persistent user choices, falling back to the env configuration."""
     saved = _load().get("torrent_sources")
     selected = _normalize_torrent_sources(saved)
     if selected:
@@ -109,7 +113,6 @@ def get_active_torrent_sources(configured_sources: str | None = None) -> tuple[s
 
 
 def toggle_torrent_source(source_id: str, configured_sources: str | None = None) -> tuple[str, ...]:
-    """Toggle one provider while always preserving at least one active source."""
     source_id = source_id.strip().lower()
     if source_id not in TORRENT_SITES:
         raise ValueError(f"unknown torrent source: {source_id}")
