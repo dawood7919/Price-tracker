@@ -34,9 +34,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if message is None or not message.text or update.effective_user is None:
         return
 
+    # Magnet links go to the full torrent engine.
+    from .torrent import handle_magnet_message
+    if await handle_magnet_message(update, context):
+        return
+
     url = URLValidator.extract_url(message.text)
     if url is None:
-        await message.reply_text("ابعتلي لينك فيديو يبدأ بـ http أو https 🙂")
+        await message.reply_text(
+            "ابعتلي لينك فيديو يبدأ بـ http أو https 🙂\n"
+            "أو رابط magnet:? أو ملف .torrent"
+        )
         return
 
     ok, err = URLValidator.validate(url)
