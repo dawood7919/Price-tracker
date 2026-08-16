@@ -162,7 +162,8 @@ class YTDLPDownloader:
 
     def _prepare_url(self, url: str) -> str:
         """Site-specific URL rewriting before yt-dlp."""
-        if "hqporner.com" in url.lower():
+        low = url.lower()
+        if "hqporner.com" in low:
             try:
                 from .sites.hqporner import resolve_playable_url_sync
 
@@ -172,6 +173,16 @@ class YTDLPDownloader:
                 return resolved or url
             except Exception:
                 logger.exception("hqporner resolve failed; using original URL")
+        if "perverzija.com" in low:
+            try:
+                from .sites.perverzija import resolve_playable_url_sync
+
+                resolved = resolve_playable_url_sync(url)
+                if resolved and resolved != url:
+                    logger.info("perverzija resolved %s -> %s", url[:80], resolved[:120])
+                return resolved or url
+            except Exception:
+                logger.exception("perverzija resolve failed; using original URL")
         return url
 
     def extract_info(self, url: str) -> MediaInfo:
@@ -228,6 +239,14 @@ class YTDLPDownloader:
         is_audio = format_key in AUDIO_FORMAT_KEYS
 
         opts = self._base_opts()
+        # HLS from xtremestream needs a player Referer or some CDNs 403
+        if "xtremestream." in url.lower():
+            opts.setdefault("http_headers", {})
+            opts["http_headers"] = {
+                **opts.get("http_headers", {}),
+                "Referer": "https://j2.xtremestream.xyz/",
+                "Origin": "https://j2.xtremestream.xyz",
+            }
         # Direct mp4 links: no format gymnastics
         if url.lower().endswith(".mp4") or ".mp4?" in url.lower():
             opts.update(

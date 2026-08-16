@@ -35,7 +35,7 @@ class Config(BaseSettings):
     port: int = Field(default=8080, alias="PORT")
 
     safe_upload_limit: int | None = Field(default=None)
-    max_concurrent_downloads: int = 20
+    max_concurrent_downloads: int = 5
     max_playlist_items: int = 10
     max_scan_items: int = 10
     max_scan_probe_links: int = 30

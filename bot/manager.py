@@ -1,13 +1,9 @@
 """Concurrency management and job state tracking (MVP: in-memory, single instance).
 
-Per user's explicit request, there is no daily quota and no per-user
-concurrency cap anymore — a user can run as many downloads in parallel
-as they want. The only remaining limit is the global semaphore, which
-exists purely so the server itself doesn't fall over from unbounded
-simultaneous yt-dlp/ffmpeg processes; it is deliberately set high
-(``max_concurrent_downloads``) rather than removed, since removing it
-entirely would let the process run out of RAM/disk/CPU and crash for
-everyone, not just the user who triggered it.
+Global concurrency is controlled by ``max_concurrent_downloads``
+(default 5). There is no daily quota and no extra per-user hard cap
+beyond the global semaphore — the semaphore exists so the server does
+not fall over from unbounded simultaneous yt-dlp/ffmpeg processes.
 
 For a multi-instance deployment this semaphore must move to Redis
 (design doc §5 — it does not shard across instances).

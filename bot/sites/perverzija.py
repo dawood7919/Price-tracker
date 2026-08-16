@@ -162,3 +162,93 @@ async def search(query: str, timeout: float = 20.0, limit: int = 40) -> list[dic
                     return results
 
     return results[:limit]
+
+
+# ---------------------------------------------------------------------------
+# Resolve page → xtremestream master m3u8 (so yt-dlp can download it)
+# ---------------------------------------------------------------------------
+
+_IFRAME_XTREME = re.compile(
+    r'(?:src|data-src)=["\'](https?://[^"\']*xtremestream[^"\']*data=([a-f0-9]{16,})[^"\']*)["\']',
+    re.I,
+)
+_XTREME_ANY = re.compile(
+    r'https?://[a-z0-9.-]*xtremestream\.[a-z]+/player/(?:index\.php|xs1\.php)\?data=([a-f0-9]{16,})',
+    re.I,
+)
+
+
+async def resolve_playable_url(page_url: str, *, timeout: float = 25.0) -> str:
+    """Perverzija page → xtremestream master m3u8 playlist URL."""
+    if "perverzija.com" not in page_url.lower():
+        return page_url
+
+    timeout_cfg = aiohttp.ClientTimeout(total=timeout)
+    headers = {
+        "User-Agent": _USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": HOME,
+    }
+
+    async with aiohttp.ClientSession(timeout=timeout_cfg, headers=headers) as session:
+        try:
+            async with session.get(page_url, allow_redirects=True) as resp:
+                if resp.status >= 400:
+                    logger.warning("perverzija resolve page HTTP %s", resp.status)
+                    return page_url
+                html = await resp.text(errors="ignore")
+        except Exception as exc:
+            logger.warning("perverzija page fetch failed: %s", exc)
+            return page_url
+
+        host = None
+        data_hash = None
+
+        m = _IFRAME_XTREME.search(html)
+        if m:
+            full = m.group(1)
+            data_hash = m.group(2)
+            # keep the same host (j2 / j1 / etc.)
+            host_m = re.search(r"https?://([^/]+)", full)
+            if host_m:
+                host = host_m.group(1)
+
+        if not data_hash:
+            m2 = _XTREME_ANY.search(html)
+            if m2:
+                data_hash = m2.group(1)
+                host_m = re.search(r"https?://([^/]+)", m2.group(0))
+                if host_m:
+                    host = host_m.group(1)
+
+        if not data_hash:
+            logger.warning(
+                "perverzija: no xtremestream data found (html_len=%d)", len(html)
+            )
+            return page_url
+
+        if not host:
+            host = "j2.xtremestream.xyz"
+
+        # Master playlist – yt-dlp handles multi-quality HLS fine
+        m3u8 = f"https://{host}/player/xs1.php?data={data_hash}"
+        logger.info("perverzija resolved %s -> %s", page_url[:80], m3u8)
+        return m3u8
+
+
+def resolve_playable_url_sync(page_url: str, timeout: float = 25.0) -> str:
+    import asyncio
+
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Called from sync context while a loop is already running
+            # (rare); fall back to a new loop in a thread would be safer
+            # but for our download path we call from to_thread-ish places.
+            return asyncio.get_event_loop().run_until_complete(
+                resolve_playable_url(page_url, timeout=timeout)
+            )
+    except RuntimeError:
+        pass
+    return asyncio.run(resolve_playable_url(page_url, timeout=timeout))
